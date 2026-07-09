@@ -15,12 +15,13 @@ server:
 springdoc:
   api-docs:
     enabled: true
+    path: /v1/pagos/v3/api-docs
   swagger-ui:
     enabled: true
     path: /doc/swagger-ui.html
 
 ---
-# 🟢 Bloque 1: Laragon (Local)
+#
 spring:
   config:
     activate:

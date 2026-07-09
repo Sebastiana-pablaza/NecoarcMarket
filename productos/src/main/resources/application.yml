@@ -7,7 +7,9 @@ spring:
 # Configuracion de Swagger
 springdoc:
   api-docs:
+    path: /v1/productos/v3/api-docs
     enabled: true
+
   swagger-ui:
     enabled: true
     path: /doc/swagger-ui.html
@@ -24,7 +26,6 @@ logging:
 
 ---
 
-# 📍 El truco infalible: Esta sección ahora se activará tanto en DEV como en PROD
 spring:
   config:
     activate:
