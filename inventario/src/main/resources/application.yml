@@ -8,6 +8,7 @@ spring:
 springdoc:
   api-docs:
     enabled: true
+    path: /v1/inventario/v3/api-docs
   swagger-ui:
     enabled: true
     path: /doc/swagger-ui.html
