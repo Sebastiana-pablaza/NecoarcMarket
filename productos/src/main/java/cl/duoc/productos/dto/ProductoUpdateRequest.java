@@ -31,7 +31,7 @@ public class ProductoUpdateRequest {
     @Schema(description = "Categoría actualizada del producto(puede quedar vacía)", example = "peluche")
     private String categoria;
 
-    @Schema(description = "Actualizacion de si quedan o no productos (esto depende de las unidades existentes del inventario)", example = "0 o 1 desde inventario")
+    
     private Boolean activo = true;
 
     @Schema(description = "Id de vendedor actualizado", example = "2")
