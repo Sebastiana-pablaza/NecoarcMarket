@@ -273,6 +273,24 @@ Es el encargado de armar los pedidos de los clientes. Su tarea principal es toma
   4. **Limpieza**: Una vez asegurada la orden y el stock, da la instrucción de vaciar el carrito del usuario y
   asignarle un estado de orden "Pendiende" para dejarlo listo para procesar en ms-pagos.
 
+## Pruebas Unitarias del Servicio de Órdenes
+
+### Reglas de Negocio Críticas del Servicio de Órdenes
+
+1. **Flujo Completo de Generación de Orden:** Al crear una orden de forma exitosa, el sistema debe calcular los montos correctos, persistir la orden junto a sus detalles, descontar el stock correspondiente mediante el cliente externo (`ms-inventario`) y limpiar el carrito del usuario (`ms-carrito`).
+2. **Validación de Carrito Vacío:** No se permite procesar o generar una orden de compra si el carrito de compras del usuario no contiene ningún artículo.
+3. **Control de Existencia de Orden:** Toda consulta o intento de actualización de estado sobre un identificador de orden que no exista en los registros debe disparar el control de excepciones correspondiente (`NoSuchElementException`).
+4. **Restauración de Stock por Cancelación:** En caso de que una orden cambie su estado a "Cancelada", se debe invocar obligatoriamente al microservicio de inventario para reintegrar la cantidad de ítems liberados.
+
+| Regla / Funcionalidad | Estado | Casos Cubiertos | Checklist |
+| :--- | :---: | :--- | :--- |
+| **1. Creación de Órdenes** | `Cubierta` | • Registro de orden, persistencia de detalles, descuento de stock y vaciado de carrito (Caso feliz).<br>• Bloqueo con excepción si el carrito del usuario está vacío. | [x] Caso feliz.<br>[x] Caso de error (Carrito vacío). |
+| **2. Consulta por ID** | `Cubierta` | • Retorno de la orden con sus respectivas líneas de detalle si el identificador existe.<br>• Lanzamiento de `NoSuchElementException` si el ID no está registrado. | [x] Caso feliz.<br>[x] Caso de error (ID inexistente). |
+| **3. Catálogo General** | `Cubierta` | • Recuperación completa de todas las órdenes del sistema con sus respectivos mapeos a respuestas de negocio. | [x] Caso feliz. |
+| **4. Filtros de Búsqueda** | `Cubierta` | • Validación de error (`NoSuchElementException`) al buscar órdenes de un usuario sin historial.<br>• Validación de error (`NoSuchElementException`) si no hay órdenes en el estado consultado. | [x] Caso de error (Usuario sin órdenes).<br>[x] Caso de error (Estado sin órdenes). |
+| **5. Actualización de Estado (Pagos)** | `Cubierta` | • Transición de estado a "Cancelada" con el correcto reintegro automatizado del stock al microservicio de inventario. | [x] Caso feliz (Reintegro de stock).<br>[ ] Falta testear escenarios para otros estados (ej. Aprobada/Pendiente). |
+
+
 ---
 
 ## 10. Microservicio de Pagos (Puerto: 8092)
@@ -288,6 +306,22 @@ Es el encargado de manejar los procesos financieros del sistema. Su funcion es r
   1. **Revisión**: Busca la orden que está en estado "pendiente" y comprueba mediante la petición que el `ordenId`, el `usuarioId` y el monto ingresado sean los correctos y coincidan con el total registrado.
   2. **Procesamiento**: Si todos los datos calzan perfectamente, el sistema aprueba el pago. Si hay algún error o los montos no coinciden, lo rechaza.
   3. **Actualización**: Automáticamente cambia el estado de la orden a "pagada" o "rechazada" en el servicio de órdenes. Si queda como pagada, el pedido se deja listo para que el **Microservicio de Envío** pueda tomarlo y armar el despacho.
+
+## Pruebas Unitarias del Servicio de Pagos
+
+### Reglas de Negocio Críticas del Servicio de Pagos
+
+1. **Sincronización por Pago Aprobado:** Al procesar un pago exitosamente (`APROBADO`), se debe persistir el registro de la transacción y notificar de inmediato al microservicio de órdenes (`ms-ordenes`) para cambiar el estado de la orden a **"Pagada"**.
+2. **Tratamiento de Pagos Rechazados:** Si el método de pago emula un estado `RECHAZADO`, el sistema debe registrar el fallo de la transacción de forma transparente y sincronizar con el cliente externo de órdenes para cambiar su estado a **"Cancelada"** (lo que gatilla la devolución de stock en inventario).
+3. **Control de Transacciones Duplicadas:** No se permite procesar más de un intento de pago para una misma orden. Si la orden ya cuenta con un registro previo, el sistema debe bloquear la operación arrojando un `IllegalStateException`.
+4. **Validación de Consultas Inexistentes:** Cualquier intento de consulta o recuperación de información financiera sobre un ID de orden no registrado debe disparar una excepción controlada del tipo `NoSuchElementException`.
+
+| Regla / Funcionalidad | Estado | Casos Cubiertos | Checklist |
+| :--- | :---: | :--- | :--- |
+| **1. Procesamiento de Pagos** | `Cubierta` | • Flujo feliz: Registro de pago aprobado y orden actualizada a "Pagada".<br>• Flujo alternativo: Registro de pago rechazado y orden actualizada a "Cancelada". | [x] Caso feliz (Aprobado).<br>[x] Caso alternativo (Rechazado). |
+| **2. Control de Duplicados** | `Cubierta` | • Bloqueo de transacciones e interrupción del flujo con `IllegalStateException` si el ID de orden ya registra pagos. | [x] Caso de error (Pago duplicado). |
+| **3. Consulta por Orden** | `Cubierta` | • Retorno de la información transaccional asociada si la orden existe.<br>• Lanzamiento de `NoSuchElementException` si la orden consultada no registra pagos. | [x] Caso feliz.<br>[x] Caso de error (Orden inexistente). |
+| **4. Historial Transaccional** | `Cubierta` | • Recuperación y mapeo íntegro de la lista completa de transacciones de pago alojadas en el sistema. | [x] Caso feliz. |
 
 ---
 
@@ -391,11 +425,11 @@ xml
 
 ---
 
-## 🔀 Configuración del API Gateway (Puerto: 8090)
+## Configuración del API Gateway (Puerto: 8090)
 
 El proyecto utiliza **Spring Cloud Gateway** como punto único de entrada para todas las solicitudes de los clientes (Frontend, aplicaciones móviles o pruebas en Postman). Este componente actúa como un proxy inverso distribuyendo el tráfico de manera inteligente hacia los 10 microservicios del ecosistema, evitando la necesidad de exponer múltiples puertos al exterior.
 
-### 🛣️ Matriz de Enrutamiento y Mapeo de Rutas
+### Matriz de Enrutamiento y Mapeo de Rutas
 
 Todas las peticiones externas deben apuntar al dominio o puerto base del Gateway: `http://localhost:9090`. El Gateway intercepta el prefijo de la URL y redirige síncronamente la petición al puerto interno correspondiente:
 
@@ -446,3 +480,46 @@ spring:
           predicates:
             - Path=/api/v1/usuarios/**
 ```
+
+## Arquitectura de Contenedores y Despliegue (Docker)
+
+El proyecto utiliza **Docker** y **Docker Compose** para unificar, aislar y desplegar todo el ecosistema de microservicios de manera estandarizada bajo una red virtual común.
+
+---
+
+### Dockerfile
+
+Cada uno de los microservicios basados en Spring Boot comparte una estrategia de construcción optimizada mediante un **Dockerfile Multi-stage**:
+
+* **Etapa 1 (Build):** Utiliza una imagen base de `maven:3.9-eclipse-temurin-21` para descargar dependencias fuera de línea (`go-offline`) y compilar el artefacto empaquetado (`.jar`) omitiendo la ejecución de pruebas unitarias (`-DskipTests`) para acelerar el despliegue.
+
+* **Etapa 2 (Runtime):** Utiliza una imagen ligera y segura de `eclipse-temurin:21-jre-alpine`. Ejecuta la aplicación bajo un usuario de sistema sin privilegios (`spring`), protegiendo el entorno de ejecución, e inicia el artefacto con el perfil productivo (`-Dspring.profiles.active=prod`).
+
+---
+
+### Docker Compose
+
+El archivo `docker-compose.yml` centraliza e intercomunica todos los componentes del sistema a través de la red de puente (`bridge`) denominada `spring-cloud-net`.
+
+#### 1. Capa de Datos (`mysql`)
+* **Motor:** Se despliega una instancia de `mysql:8.0` expuesta localmente en el puerto `3307`.
+* **Persistencia:** Cuenta con un volumen nombrado (`mysql_data`) para mantener la información de manera local entre reinicios.
+* **Inicialización:** Automatiza la creación de los esquemas mediante el montaje del script `./init-db.sql` en el directorio de entrada de Docker.
+* **Disponibilidad:** Configura un `healthcheck` dinámico (`mysqladmin ping`) para asegurar que el motor reciba conexiones antes de levantar el resto de las aplicaciones.
+
+#### 2. Capa de Microservicios y Gateway
+Cada microservicio se compila localmente a través de su propio contexto y hereda variables de entorno específicas para apuntar a su esquema correspondiente en la base de datos común:
+
+| Microservicio / Contenedor | Puerto Expuesto | Base de Datos Asociada |
+| :--- | :---: | :--- |
+| `api-gateway` | `8090` | *N/A* |
+| `usuario` | `8080` | `db_necoarcmarket_usuario` |
+| `productos-service` | `8081` | `db_necoarcmarket_productos` |
+| `inventario-service` | `8082` | `db_necoarcmarket_inventario` |
+| `ms-busqueda` | `8083` | `db_necoarcmarket_busqueda` |
+| `envio-service` | `8084` | `db_necoarcmarket_envio` |
+| `notificacion-service` | `8085` | `db_necoarcmarket_notificacion` |
+| `resena-service` | `8086` | `db_necoarcmarket_resenas` |
+| `carrito-service` | `8087` | `db_necoarcmarket_carrito` |
+| `ordenes-service` | `8088` | `db_necoarcmarket_ordenes` |
+| `pagos-service` | `8092` | `db_necoarcmarket_pagos` |
