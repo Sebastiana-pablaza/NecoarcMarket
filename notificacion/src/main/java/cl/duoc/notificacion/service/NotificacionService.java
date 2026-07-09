@@ -55,7 +55,7 @@ public class NotificacionService {
         n.setTipo(request.getTipo());
         n.setFechaEnvio(LocalDateTime.now());
         if(user != null) {
-            String saludo = "Hola " + user.getNombre() + " " + user.getApmaperno();
+            String saludo = "Hola " + user.getNombre() + " " + user.getAppaterno();
             n.setMensaje(saludo + ": " + request.getMensaje());
             log.info("Notificación personalizada creada con éxito para usuario ID (owo): {}", request.getUsuarioId());
         } else {

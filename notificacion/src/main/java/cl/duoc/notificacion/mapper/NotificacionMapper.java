@@ -23,7 +23,6 @@ public class NotificacionMapper {
                 .id(notificacion.getId())
                 .usuarioId(notificacion.getUsuarioId())
                 .nombreUsuario(nombre)
-                .appaternouno(nombre)
                 .mensaje(notificacion.getMensaje())
                 .tipo(notificacion.getTipo())
                 .fechaEnvio(notificacion.getFechaEnvio() != null ? notificacion.getFechaEnvio().toString() : null)

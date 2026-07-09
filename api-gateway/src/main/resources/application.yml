@@ -4,20 +4,27 @@ server:
 spring:
   application:
     name: api-gateway
+  # 🟢 Dejamos el perfil activo global por si acaso
   profiles:
     active: dev
-
----
-
-spring:
-  config:
-    activate:
-      on-profile: dev, prod
 
   cloud:
     gateway:
       server:
         webmvc:
+          # 🟢 CORS Global Unificado (Se ejecutará SIEMPRE, en dev y en prod)
+          cors:
+            configurations:
+              '[/**]':
+                allowedOrigins: "*"
+                allowedMethods:
+                  - GET
+                  - POST
+                  - PUT
+                  - PATCH
+                  - DELETE
+                  - OPTIONS
+                allowedHeaders: "*"
           routes:
             #Microservicio de Usuarios
             - id: ms-usuario-route
@@ -29,7 +36,7 @@ spring:
 
             #Microservicio de Productos
             - id: ms-productos-route
-              uri: ${PRODUCTOS_SERVICE_URL:http://producto-service:8081}
+              uri: ${PRODUCTOS_SERVICE_URL:http://productos-service:8081}
               predicates:
                 - Path=/v1/productos/**
               filters:
