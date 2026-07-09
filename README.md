@@ -46,6 +46,26 @@ Encargado de la gestión de perfiles de clientes, credenciales, datos de contact
 ## 2. Microservicio de Productos (Puerto: 8081)
 Gestiona el catálogo comercial de la tienda (nombres, descripciones, categorías y precios de los productos). Mantiene un desacoplamiento estricto al no guardar stock de forma física.
 
+## Pruebas unitarias del servicio de productos
+
+### Reglas de Negocio Críticas del Servicio de Productos
+
+- **Unicidad del Catálogo Comercial**: No se permite el registro ni la modificación de un producto si su nombre ya existe en el sistema (`db_necoarcmarket_productos`).
+
+- **Sincronización y Dependencia Externa**: Toda consulta o mutación del catálogo exige la interacción síncrona con el microservicio de inventario (`ms-inventario`) para consolidar las existencias físicas.
+
+- **Resiliencia ante Caídas (Tolerancia a Fallos)**: Si el microservicio de inventario está fuera de servicio, el sistema activa un fallback (catch) que devuelve de forma controlada el artículo con `stock: 0` sin interrumpir la experiencia de navegación en la vitrina.
+
+- **Validación Estricta de Identificadores**: Garantizar que todas las operaciones de consulta individual, actualización dinámica y eliminación validen estrictamente la existencia previa del identificador (`id`).
+
+| Regla | Estado | Casos Cubiertos | Checklist |
+| :--- | :---: | :--- | :--- |
+| **1. Registro de Productos** | **`Cubierta`** | • Registro exitoso e inicialización automática de stock en bodega en `0` (Caso feliz).<br>• Bloqueo con excepción `ConflictException` ante nombres duplicados. | [x] Caso feliz.<br>[x] Caso de error. |
+| **2. Búsqueda y Vitrina Individual** | **`Cubierta`** | • Extracción por ID con mapeo de stock dinámico.<br>• Activación de Fallback: Retorno resiliente con stock en `0` si `ms-inventario` falla.<br>• Control de ID no localizado lanzando `NoSuchElementException`. | [x] Caso feliz.<br>[x] Caso de error.<br>[x] Prueba de resiliencia. |
+| **3. Consulta del Catálogo** | **`Cubierta`** | • Listado maestro mapeando múltiples productos en paralelo cruzando correctamente sus cantidades de bodega. | [x] Caso feliz. |
+| **4. Actualización Dinámica** | **`Cubierta`** | • Modificación de propiedades y validación ante colisión de nombres con otros IDs existentes (`existsByNombrepAndIdNot`). | [x] Caso feliz.<br>[x] Caso alternativo. |
+| **5. Eliminación del Catálogo**| **`Cubierta`** | • Remoción física/lógica exitosa validando previamente la existencia del ID en los registros maestros. | [x] Caso feliz. |
+
 ### Tecnologías y Dependencias
 - **Spring Web / Spring Data JPA**: Operaciones del catálogo comercial sobre la base de datos `db_necoarcmarket_productos`.
 - **Lombok y Flyway**
@@ -60,6 +80,27 @@ Gestiona el catálogo comercial de la tienda (nombres, descripciones, categoría
 ## 3. Microservicio de Inventario (Puerto: 8082)
 Actúa como el control de bodega física centralizado del ecosistema. Su única responsabilidad es supervisar las existencias y procesar las mermas o reabastecimientos de stock.
 
+## Pruebas unitarias del servicio de inventario
+
+### Reglas de Negocio Críticas del Servicio de Inventario
+
+- **Aislamiento e Integridad de Bodega**: El stock físico se almacena de forma independiente vinculando únicamente el identificador (`productoId`). Toda consulta sobre un artículo inexistente en los registros de bodega debe disparar una excepción `NoSuchElementException`.
+
+- **Validación de Identidad Comercial**: El reabastecimiento o adición de stock exige comprobar previamente mediante una llamada vía `WebClient` a `ms-productos` que el artículo esté registrado en el catálogo comercial antes de alterar las cantidades físicas.
+
+- **Control Estricto de Mermas y Despachos**: No se permiten mermas o reducciones que dejen el inventario en valores negativos. Si la cantidad solicitada para un descuento supera las existencias físicas actuales, el sistema debe bloquear la transacción lanzando un `ConflictException`.
+
+- **Composición de Datos Bidireccional**: Para la auditoría de stock, el servicio es capaz de orquestar una respuesta unificada (`ProductoDetalleDTO`), cruzando síncronamente los balances numéricos de la base de datos local (`db_necoarcmarket_inventario`) con la metadata comercial externa.
+
+| Regla | Estado | Casos Cubiertos | Checklist |
+| :--- | :---: | :--- | :--- |
+| **1. Consulta de Existencias** | **`Cubierta`** | • Retorno exitoso de cantidades disponibles por ID (Caso feliz).<br>• Bloqueo y control de excepciones ante IDs de productos no localizados. | [x] Caso feliz.<br>[x] Caso de error. |
+| **2. Reabastecimiento de Stock** | **`Cubierta`** | • Validación de existencia en la API externa comercial y acumulación matemática exacta sobre el stock base. | [x] Caso feliz. |
+| **3. Descuento de Unidades** | **`Cubierta`** | • Deducción exitosa de existencias tras una compra (Caso feliz).<br>• Bloqueo con excepción `ConflictException` bajo la regla de "Stock insuficiente". | [x] Caso feliz.<br>[x] Caso de error. |
+| **4. Validación de Disponibilidad** | **`Cubierta`** | • Evaluación lógica booleana (`true`/`false`) para verificar si el balance actual cubre o no una orden de compra. | [x] Caso feliz.<br>[x] Caso alternativo. |
+| **5. Consolidación de Detalle** | **`Cubierta`** | • Cruzado de datos locales con la API externa para construir un DTO de auditoría de inventario completo. | [x] Caso feliz. |
+| **6. Remoción de Bodega** | **`Cubierta`** | • Eliminación física completa del registro de existencias locales al dar de baja un producto. | [x] Caso feliz. |
+
 ### Tecnologías y Dependencias
 - **Spring Web / Spring Data JPA**: Persistencia y control de stock sobre `db_necoarcmarket_inventario`.
 - **Lombok**
@@ -73,6 +114,23 @@ Actúa como el control de bodega física centralizado del ecosistema. Su única 
 ## 4. Microservicio de Búsqueda (Puerto: 8083)
 Motor de consultas optimizado. No maneja persistencia local de datos maestros para evitar la redundancia y la inconsistencia de información.
 
+## Pruebas unitarias del servicio de búsqueda y seguimiento
+
+### Reglas de Negocio Críticas del Servicio de Búsqueda
+
+- **Sincronización Dinámica de Envíos**: Al consultar un código de seguimiento, el servicio intercepta el estado actual y se conecta vía `WebClient` con el microservicio logístico (`ms-envio`). Si detecta cambios en el trayecto, actualiza y sincroniza automáticamente el nuevo estado en la persistencia local (`db_necoarcmarket_busqueda`).
+
+- **Resiliencia de Trazabilidad (Fallback)**: Si el microservicio externo de envíos se encuentra caído o inaccesible, el sistema no debe colapsar; activa un flujo de contingencia que recupera el último estado guardado en la base de datos local ("en bodega"), garantizando la disponibilidad del servicio.
+
+- **Validación Estricta de Códigos**: Toda solicitud de rastreo de paquetes exige la verificación previa de la existencia del código. Si el identificador `codigoSeguimiento` no está registrado, se bloquea la operación disparando un `NoSuchElementException`.
+
+| Regla | Estado | Casos Cubiertos | Checklist |
+| :--- | :---: | :--- | :--- |
+| **1. Rastreo Orquestado** | **`Cubierta`** | • Consulta exitosa cruzando datos con la API externa de Envíos y actualización automática del registro local (Caso feliz). | [x] Caso feliz. |
+| **2. Trazabilidad Resiliente** | **`Cubierta`** | • Activación de Fallback: Retorno seguro del estado de respaldo local ("en bodega") ante la caída o rechazo de conexión de `ms-envio`. | [x] Caso de resiliencia. |
+| **3. Control de Códigos** | **`Cubierta`** | • Bloqueo de consulta con excepción `NoSuchElementException` cuando el código de seguimiento no existe en la base de datos. | [x] Caso de error. |
+| **4. Registro de Guías** | **`Cubierta`** | • Inserción y mapeo correcto de una nueva guía de seguimiento con su estado de despacho inicial. | [x] Caso feliz. |
+
 ### Tecnologías y Dependencias
 - **Spring Web / Lombok**
 - **WebClient (`.block()`)**: Cliente para multi-consultas paralelas en el backend.
@@ -85,6 +143,23 @@ Motor de consultas optimizado. No maneja persistencia local de datos maestros pa
 ## 5. Microservicio de Reseña (Puerto: 8086)
 Centraliza el feedback de la comunidad, permitiendo a los clientes asignar calificaciones (de 1 a 5) y comentarios escritos a los artículos adquiridos.
 
+## Pruebas unitarias del servicio de reseñas
+
+### Reglas de Negocio Críticas del Servicio de Reseñas
+
+- **Inyección Dinámica de Identidades**: Al persistir o listar una valoración en la base de datos (`db_necoarcmarket_resenas`), el servicio consume síncronamente vía `WebClient` al microservicio maestro de usuarios (`ms-usuario`) para unificar el nombre y los apellidos del autor en el payload de salida.
+
+- **Resiliencia ante Fallos de Conexión (Fallback)**: Si el microservicio externo de usuarios se encuentra caído o inaccesible (`Timeout`), el sistema debe ser tolerante al fallo; almacena la reseña de igual forma y asigna temporalmente el literal `"Servicio no disponible"` en el campo del nombre.
+
+- **Control de Registros Huérfanos**: En caso de que la consulta hacia la API externa retorne una respuesta vacía o un valor nulo (`null`), el sistema limpia el flujo asignando el valor por defecto `"Usuario Desconocido"`, evitando quiebres en el mapeo de la respuesta.
+
+| Regla | Estado | Casos Cubiertos | Checklist |
+| :--- | :---: | :--- | :--- |
+| **1. Creación de Valoraciones** | **`Cubierta`** | • Inserción exitosa consolidando el nombre completo del usuario externo (Caso feliz). | [x] Caso feliz. |
+| **2. Tolerancia a Fallos** | **`Cubierta`** | • Activación de Fallback: Inyección controlada de `"Servicio no disponible"` ante excepciones de red con `ms-usuario`. | [x] Caso de resiliencia. |
+| **3. Control de Datos Nulos** | **`Cubierta`** | • Mapeo preventivo asignando `"Usuario Desconocido"` cuando el cliente de usuarios responde con un objeto vacío. | [x] Caso alternativo. |
+| **4. Listado por Artículo** | **`Cubierta`** | • Recuperación del historial completo de reseñas asociadas a un identificador de producto específico. | [x] Caso feliz. |
+
 ### Tecnologías y Dependencias
 - **Spring Web / Spring Data JPA**: Persistencia de valoraciones sobre `db_necoarcmarket_resenas`.
 - **Validation**: Restricciones de integridad `@Min` y `@Max` para el control de la escala de estrellas.
@@ -96,6 +171,23 @@ Centraliza el feedback de la comunidad, permitiendo a los clientes asignar calif
 
 ## 6. Microservicio de Notificación (Puerto: 8085)
 Centralizador de comunicaciones encargado de simular de manera reactiva el envío de alertas y estados del sistema al cliente final.
+
+## Pruebas unitarias del servicio de notificaciones
+
+### Reglas de Negocio Críticas del Servicio de Notificaciones
+
+- **Personalización Dinámica de Mensajes (Saludo)**: Al generar una nueva notificación (`crear`), el sistema consume mediante `WebClient` al microservicio `ms-usuario`. Si el cliente existe, antepone un saludo personalizado estructurando el mensaje como: `"Hola [Nombre] [Apellido]: [Mensaje Original]"`.
+
+- **Mitigación de Errores e Identidades Huérfanas**: Si el microservicio de usuarios devuelve un valor nulo (`null`) al intentar registrar una alerta, el sistema activa una regla de contingencia inyectando un formato de aviso genérico: `"Aviso para Usuario ID [ID]: [Mensaje Original]"`, garantizando la persistencia del log.
+
+- **Orquestación del Historial de Alertas**: El listado de notificaciones extrae los registros de la base de datos relacional (`db_necoarcmarket_notificacion`) ordenados cronológicamente de forma descendente, inyectando de forma dinámica el nombre completo del autor o aplicando el literal `"Usuario Desconocido"` si la comunicación externa falla.
+
+| Regla | Estado | Casos Cubiertos | Checklist |
+| :--- | :---: | :--- | :--- |
+| **1. Historial de Alertas** | **`Cubierta`** | • Listado cronológico exitoso unificando el nombre y apellido del usuario de la API externa (Caso feliz). | [x] Caso feliz. |
+| **2. Control de Listas Vacías** | **`Cubierta`** | • Inyección preventiva del literal `"Usuario Desconocido"` en las respuestas del historial si el cliente HTTP responde vacío. | [x] Caso alternativo. |
+| **3. Generación Personalizada**| **`Cubierta`** | • Captura y validación del armado estructurado del mensaje con saludo dinámico (`ArgumentCaptor`) al detectar un usuario válido. | [x] Caso feliz. |
+| **4. Alertas de Contingencia** | **`Cubierta`** | • Fallback: Mutación exitosa hacia un mensaje genérico con el ID de referencia cuando el usuario externo no es localizado. | [x] Caso de resiliencia. |
 
 ### Tecnologías y Dependencias
 - **Spring Web / Lombok**
