@@ -64,10 +64,9 @@ spring:
 
 #ubicacion de puertos
 server:
-  port: ${PORT:8081}
+  port: ${PORT:8083}
 
 services:
   envios:
     baseUrl: ${ENVIOS_SERVICE_URL:http://${DB_HOST:localhost}:8083}
-  productos:
-    baseUrl: ${PRODUCTOS_SERVICE_URL:http://${DB_HOST:localhost}:8081/v1/productos}
+
